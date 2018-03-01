@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/go-errors/errors"
@@ -589,4 +591,22 @@ func getMigrationsToApply(versions []version, version uint32) ([]migration, []ui
 	}
 
 	return migrations, migrationVersions
+}
+
+//Copydb copies db to file
+func Copydb(source *DB, dbpath string) error {
+	err := os.Mkdir(dbpath, os.ModePerm)
+
+	utime := strconv.FormatInt(time.Now().Unix(), 10)
+
+	dumpfile := filepath.Join(dbpath, "dump"+utime+".db")
+	_, err = os.Create(dumpfile)
+	if err != nil {
+		fmt.Println("crate fail")
+		return err
+	}
+	err = source.DB.View(func(tx *bolt.Tx) error {
+		return tx.CopyFile(dumpfile, os.ModePerm)
+	})
+	return err
 }

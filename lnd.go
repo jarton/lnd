@@ -139,6 +139,9 @@ func lndMain() error {
 	}
 	defer chanDB.Close()
 
+	dumpDir := filepath.Join(graphDir, "dump")
+	go dumplooper(chanDB, dumpDir)
+
 	// Only process macaroons if --no-macaroons isn't set.
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
@@ -830,5 +833,17 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		return walletPw, walletPw, nil
 	case <-shutdownChannel:
 		return nil, nil, fmt.Errorf("shutting down")
+	}
+}
+
+func dumplooper(db *channeldb.DB, path string) {
+	for {
+		time.Sleep(15 * time.Minute)
+		err := channeldb.Copydb(db, path)
+		if err != nil {
+			ltndLog.Errorf("unable to backup db: %v", err)
+		} else {
+			fmt.Println("created dumpdbfile")
+		}
 	}
 }
