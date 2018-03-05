@@ -139,9 +139,6 @@ func lndMain() error {
 	}
 	defer chanDB.Close()
 
-	dumpDir := filepath.Join(graphDir, "dump")
-	go dumplooper(chanDB, dumpDir)
-
 	// Only process macaroons if --no-macaroons isn't set.
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
@@ -231,6 +228,9 @@ func lndMain() error {
 	if chainCleanUp != nil {
 		defer chainCleanUp()
 	}
+
+	dumpDir := filepath.Join(graphDir, "dump")
+	go dumplooper(chanDB, dumpDir, activeChainControl.chainIO)
 
 	// Finally before we start the server, we'll register the "holy
 	// trinity" of interface for our current "home chain" with the active
@@ -836,14 +836,15 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 	}
 }
 
-func dumplooper(db *channeldb.DB, path string) {
+func dumplooper(db *channeldb.DB, path string, chainio lnwallet.BlockChainIO) {
 	for {
 		time.Sleep(15 * time.Minute)
-		err := channeldb.Copydb(db, path)
+		_, height, _ := chainio.GetBestBlock()
+		err := channeldb.Copydb(db, path, height)
 		if err != nil {
 			ltndLog.Errorf("unable to backup db: %v", err)
 		} else {
-			fmt.Println("created dumpdbfile")
+			ltndLog.Infof("Created dumpdbfile")
 		}
 	}
 }

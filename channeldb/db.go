@@ -594,15 +594,16 @@ func getMigrationsToApply(versions []version, version uint32) ([]migration, []ui
 }
 
 //Copydb copies db to file
-func Copydb(source *DB, dbpath string) error {
+func Copydb(source *DB, dbpath string, height int32) error {
 	err := os.Mkdir(dbpath, os.ModePerm)
 
-	utime := strconv.FormatInt(time.Now().Unix(), 10)
+	heightstring := strconv.FormatInt(int64(height), 10)
+	stringtime := strconv.FormatInt(int64(time.Now().Unix()), 10)
 
-	dumpfile := filepath.Join(dbpath, "dump"+utime+".db")
+	dumpfile := filepath.Join(dbpath, "dump-"+heightstring+"-"+stringtime+".db")
 	_, err = os.Create(dumpfile)
 	if err != nil {
-		fmt.Println("crate fail")
+		fmt.Println("cannot create file to dump db")
 		return err
 	}
 	err = source.DB.View(func(tx *bolt.Tx) error {
