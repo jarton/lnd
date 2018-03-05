@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/go-errors/errors"
@@ -598,9 +597,8 @@ func Copydb(source *DB, dbpath string, height int32) error {
 	err := os.Mkdir(dbpath, os.ModePerm)
 
 	heightstring := strconv.FormatInt(int64(height), 10)
-	stringtime := strconv.FormatInt(int64(time.Now().Unix()), 10)
 
-	dumpfile := filepath.Join(dbpath, "dump-"+heightstring+"-"+stringtime+".db")
+	dumpfile := filepath.Join(dbpath, "dump-"+heightstring+".db")
 	_, err = os.Create(dumpfile)
 	if err != nil {
 		fmt.Println("cannot create file to dump db")

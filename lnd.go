@@ -36,6 +36,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -230,7 +231,8 @@ func lndMain() error {
 	}
 
 	dumpDir := filepath.Join(graphDir, "dump")
-	go dumplooper(chanDB, dumpDir, activeChainControl.chainIO)
+	fmt.Println("driiiiiiiitttttt faen")
+	go dumplooper(chanDB, dumpDir, activeChainControl.chainNotifier)
 
 	// Finally before we start the server, we'll register the "holy
 	// trinity" of interface for our current "home chain" with the active
@@ -836,13 +838,20 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 	}
 }
 
-func dumplooper(db *channeldb.DB, path string, chainio lnwallet.BlockChainIO) {
-	for {
-		time.Sleep(15 * time.Minute)
-		_, height, _ := chainio.GetBestBlock()
-		err := channeldb.Copydb(db, path, height)
+func dumplooper(db *channeldb.DB, path string, notifer chainntnfs.ChainNotifier) {
+
+	fmt.Println("running dumplooper")
+	event, err := notifer.RegisterBlockEpochNtfn()
+	if err != nil {
+		ltndLog.Errorf("unable to register block notifer: %v", err)
+	}
+	for block := range event.Epochs {
+		fmt.Println("registerd new block at height ", block.Height)
+		time.Sleep(90 * time.Second)
+
+		err := channeldb.Copydb(db, path, block.Height)
 		if err != nil {
-			ltndLog.Errorf("unable to backup db: %v", err)
+			ltndLog.Errorf("cannot dump db to file")
 		} else {
 			ltndLog.Infof("Created dumpdbfile")
 		}
