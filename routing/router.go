@@ -513,6 +513,8 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 // been updated since our zombie horizon. We do this periodically to keep a
 // health, lively routing table.
 func (r *ChannelRouter) pruneZombieChans() error {
+	log.Infof("Attempts to prune graph of zombie channels. Should return immediately")
+	return nil
 	var chansToPrune []wire.OutPoint
 	chanExpiry := r.cfg.ChannelPruneExpiry
 
