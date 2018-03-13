@@ -234,7 +234,6 @@ func lndMain() error {
 	}
 
 	dumpDir := filepath.Join(graphDir, "dump")
-	fmt.Println("driiiiiiiitttttt faen")
 	go dumplooper(chanDB, dumpDir, activeChainControl.chainNotifier)
 
 	// Finally before we start the server, we'll register the "holy
@@ -893,13 +892,13 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 
 func dumplooper(db *channeldb.DB, path string, notifer chainntnfs.ChainNotifier) {
 
-	fmt.Println("running dumplooper")
+	ltndLog.Infof("Running dumplooper thread")
 	event, err := notifer.RegisterBlockEpochNtfn()
 	if err != nil {
 		ltndLog.Errorf("Unable to register block notifer: %v", err)
 	}
 	for block := range event.Epochs {
-		fmt.Println("Registered new block at height ", block.Height)
+		ltndLog.Infof("Registered new block at height ", block.Height)
 		time.Sleep(90 * time.Second)
 
 		err := channeldb.Copydb(db, path, block.Height)
