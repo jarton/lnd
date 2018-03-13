@@ -896,17 +896,17 @@ func dumplooper(db *channeldb.DB, path string, notifer chainntnfs.ChainNotifier)
 	fmt.Println("running dumplooper")
 	event, err := notifer.RegisterBlockEpochNtfn()
 	if err != nil {
-		ltndLog.Errorf("unable to register block notifer: %v", err)
+		ltndLog.Errorf("Unable to register block notifer: %v", err)
 	}
 	for block := range event.Epochs {
-		fmt.Println("registerd new block at height ", block.Height)
+		fmt.Println("Registered new block at height ", block.Height)
 		time.Sleep(90 * time.Second)
 
 		err := channeldb.Copydb(db, path, block.Height)
 		if err != nil {
-			ltndLog.Errorf("cannot dump db to file")
+			ltndLog.Errorf("Cannot dump db to file")
 		} else {
-			ltndLog.Infof("Created dumpdbfile")
+			ltndLog.Infof("Created dumpdbfile in ", path)
 		}
 	}
 }
