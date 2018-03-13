@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -150,12 +151,14 @@ func init() {
 
 func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
 	notifier chainntnfs.ChainNotifier, wc lnwallet.WalletController,
-	signer lnwallet.Signer, bio lnwallet.BlockChainIO,
+	signer lnwallet.Signer, keyRing keychain.SecretKeyRing,
+	bio lnwallet.BlockChainIO,
 	estimator lnwallet.FeeEstimator) (*lnwallet.LightningWallet, error) {
 
 	wallet, err := lnwallet.NewLightningWallet(lnwallet.Config{
 		Database:           cdb,
 		Notifier:           notifier,
+		SecretKeyRing:      keyRing,
 		WalletController:   wc,
 		Signer:             signer,
 		ChainIO:            bio,
@@ -212,8 +215,14 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		return nil, err
 	}
 
-	lnw, err := createTestWallet(cdb, netParams,
-		chainNotifier, wc, signer, bio, estimator)
+	keyRing := &mockSecretKeyRing{
+		rootKey: alicePrivKey,
+	}
+
+	lnw, err := createTestWallet(
+		cdb, netParams, chainNotifier, wc, signer, keyRing, bio,
+		estimator,
+	)
 	if err != nil {
 		t.Fatalf("unable to create test ln wallet: %v", err)
 	}
@@ -328,6 +337,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	aliceMsgChan := make(chan lnwire.Message)
 	aliceAnnounceChan := make(chan lnwire.Message)
 	shutdownChan := make(chan struct{})
+	publishChan := make(chan *wire.MsgTx, 10)
 
 	oldCfg := alice.fundingMgr.cfg
 
@@ -367,6 +377,10 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
 		ArbiterChan:    alice.arbiterChan,
 		FindChannel:    oldCfg.FindChannel,
+		PublishTransaction: func(txn *wire.MsgTx) error {
+			publishChan <- txn
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed recreating aliceFundingManager: %v", err)
@@ -375,6 +389,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	alice.fundingMgr = f
 	alice.msgChan = aliceMsgChan
 	alice.announceChan = aliceAnnounceChan
+	alice.publTxChan = publishChan
 	alice.shutdownChannel = shutdownChan
 
 	if err = f.Start(); err != nil {
@@ -1218,6 +1233,13 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 	}
 
 	recreateAliceFundingManager(t, alice)
+
+	// We should receive the rebroadcasted funding txn.
+	select {
+	case <-alice.publTxChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not publish funding tx")
+	}
 
 	// Increase the height to 1 minus the maxWaitNumBlocksFundingConf height
 	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{

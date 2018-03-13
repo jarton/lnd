@@ -38,14 +38,17 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcwallet/wallet"
 )
 
 const (
@@ -240,7 +243,13 @@ func lndMain() error {
 	primaryChain := registeredChains.PrimaryChain()
 	registeredChains.RegisterChain(primaryChain, activeChainControl)
 
-	idPrivKey, err := activeChainControl.wallet.GetIdentitykey()
+	// TODO(roasbeef): add rotation
+	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamilyNodeKey,
+			Index:  0,
+		},
+	})
 	if err != nil {
 		return err
 	}
@@ -255,8 +264,9 @@ func lndMain() error {
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
-	server, err := newServer(cfg.Listeners, chanDB, activeChainControl,
-		idPrivKey)
+	server, err := newServer(
+		cfg.Listeners, chanDB, activeChainControl, idPrivKey,
+	)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err
@@ -270,10 +280,11 @@ func lndMain() error {
 		return err
 	}
 	fundingMgr, err := newFundingManager(fundingConfig{
-		IDKey:        idPrivKey.PubKey(),
-		Wallet:       activeChainControl.wallet,
-		Notifier:     activeChainControl.chainNotifier,
-		FeeEstimator: activeChainControl.feeEstimator,
+		IDKey:              idPrivKey.PubKey(),
+		Wallet:             activeChainControl.wallet,
+		PublishTransaction: activeChainControl.wallet.PublishTransaction,
+		Notifier:           activeChainControl.chainNotifier,
+		FeeEstimator:       activeChainControl.feeEstimator,
 		SignMessage: func(pubKey *btcec.PublicKey,
 			msg []byte) (*btcec.Signature, error) {
 
@@ -825,14 +836,56 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		"Use `lncli create` to create wallet, or " +
 		"`lncli unlock` to unlock already created wallet.")
 
-	// We currently don't distinguish between getting a password to
-	// be used for creation or unlocking, as a new wallet db will be
-	// created if none exists when creating the chain control.
+	// We currently don't distinguish between getting a password to be used
+	// for creation or unlocking, as a new wallet db will be created if
+	// none exists when creating the chain control.
 	select {
-	case walletPw := <-pwService.CreatePasswords:
-		return walletPw, walletPw, nil
+
+	// The wallet is being created for the first time, we'll check to see
+	// if the user provided any entropy for seed creation. If so, then
+	// we'll create the wallet early to load the seed.
+	case initMsg := <-pwService.InitMsgs:
+		password := initMsg.Passphrase
+		cipherSeed := initMsg.WalletSeed
+
+		// Before we proceed, we'll check the internal version of the
+		// seed. If it's greater than the current key derivation
+		// version, then we'll return an error as we don't understand
+		// this.
+		if cipherSeed.InternalVersion != keychain.KeyDerivationVersion {
+			return nil, nil, fmt.Errorf("invalid internal seed "+
+				"version %v, current version is %v",
+				cipherSeed.InternalVersion,
+				keychain.KeyDerivationVersion)
+		}
+
+		netDir := btcwallet.NetworkDir(
+			chainConfig.ChainDir, activeNetParams.Params,
+		)
+		loader := wallet.NewLoader(activeNetParams.Params, netDir)
+
+		// With the seed, we can now use the wallet loader to create
+		// the wallet, then unload it so it can be opened shortly
+		// after.
+		// TODO(roasbeef): extend loader to also accept birthday
+		_, err = loader.CreateNewWallet(
+			password, password, cipherSeed.Entropy[:],
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if err := loader.UnloadWallet(); err != nil {
+			return nil, nil, err
+		}
+
+		return password, password, nil
+
+	// The wallet has already been created in the past, and is simply being
+	// unlocked. So we'll just return these passphrases.
 	case walletPw := <-pwService.UnlockPasswords:
 		return walletPw, walletPw, nil
+
 	case <-shutdownChannel:
 		return nil, nil, fmt.Errorf("shutting down")
 	}

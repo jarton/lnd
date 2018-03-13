@@ -9,12 +9,13 @@ import (
 	"image/color"
 	"math/big"
 	"net"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -140,8 +141,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, addr := range listenAddrs {
-		// Note: though brontide.NewListener uses ResolveTCPAddr, it doesn't need to call the
-		// general lndResolveTCP function since we are resolving a local address.
+		// Note: though brontide.NewListener uses ResolveTCPAddr, it
+		// doesn't need to call the general lndResolveTCP function
+		// since we are resolving a local address.
 		listeners[i], err = brontide.NewListener(privKey, addr)
 		if err != nil {
 			return nil, err
@@ -151,6 +153,15 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	globalFeatures := lnwire.NewRawFeatureVector()
 
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
+
+	// Initialize the sphinx router, placing it's persistent replay log in
+	// the same directory as the channel graph database.
+	graphDir := chanDB.Path()
+	sharedSecretPath := filepath.Join(graphDir, "sphinxreplay.db")
+	sphinxRouter := sphinx.NewRouter(
+		sharedSecretPath, privKey, activeNetParams.Params, cc.chainNotifier,
+	)
+
 	s := &server{
 		chanDB: chanDB,
 		cc:     cc,
@@ -162,8 +173,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx: htlcswitch.NewOnionProcessor(
-			sphinx.NewRouter(privKey, activeNetParams.Params)),
+		sphinx:      htlcswitch.NewOnionProcessor(sphinxRouter),
 		lightningID: sha256.Sum256(serializedPubKey),
 
 		persistentPeers:        make(map[string]struct{}),
@@ -197,7 +207,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			debugPre[:], debugHash[:])
 	}
 
-	s.htlcSwitch = htlcswitch.New(htlcswitch.Config{
+	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
+		DB:      chanDB,
 		SelfKey: s.identityPriv.PubKey(),
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
@@ -221,7 +232,13 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 					pubKey[:], err)
 			}
 		},
+		FwdingLog:      chanDB.ForwardingLog(),
+		SwitchPackager: channeldb.NewSwitchPackager(),
 	})
+	if err != nil {
+		return nil, err
+	}
+	s.htlcSwitch = htlcSwitch
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses. We need to use the cfg.net.ResolveTCPAddr
@@ -490,7 +507,9 @@ func (s *server) Start() error {
 	if err := s.cc.chainNotifier.Start(); err != nil {
 		return err
 	}
-
+	if err := s.sphinx.Start(); err != nil {
+		return err
+	}
 	if err := s.htlcSwitch.Start(); err != nil {
 		return err
 	}
@@ -553,6 +572,7 @@ func (s *server) Stop() error {
 	s.cc.chainNotifier.Stop()
 	s.chanRouter.Stop()
 	s.htlcSwitch.Stop()
+	s.sphinx.Stop()
 	s.utxoNursery.Stop()
 	s.breachArbiter.Stop()
 	s.authGossiper.Stop()
