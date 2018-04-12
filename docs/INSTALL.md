@@ -16,7 +16,7 @@
     ```
     sudo apt-get install golang-1.10-go
     ```
-    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.8/bin. If you want them on your PATH, you need to make that change yourself.
+    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.10/bin. If you want them on your PATH, you need to make that change yourself.
 
     On Mac OS X
     ```
@@ -42,8 +42,11 @@
     you can avoid typing this every time you open a new terminal window.
 
   * **dep:** This project uses `dep` to manage dependencies as well
-    as to provide *reproducible builds*. To install `dep`, execute the
-    following command (assumes you already have Go properly installed):
+    as to provide *reproducible builds*.
+    
+    **Note**: `dep` is automatically installed via the `make`. To fetch `dep`
+    manually, use the following command (assumes you already have Go properly
+    installed):
     ```
     go get -u github.com/golang/dep/cmd/dep
     ```
@@ -53,10 +56,9 @@
 With the preliminary steps completed, to install `lnd`, `lncli`, and all
 related dependencies run the following commands:
 ```
-git clone https://github.com/lightningnetwork/lnd $GOPATH/src/github.com/lightningnetwork/lnd
+go get -d github.com/lightningnetwork/lnd
 cd $GOPATH/src/github.com/lightningnetwork/lnd
-dep ensure
-go install . ./cmd/...
+make && make install
 ```
 
 **Updating**
@@ -64,31 +66,27 @@ go install . ./cmd/...
 To update your version of `lnd` to the latest version run the following
 commands:
 ```
-cd $GOPATH/src/github.com/lightningnetwork/lnd
-git pull && dep ensure
-go install . ./cmd/...
+git pull
+make && make install
 ```
 
 **Tests**
 
 To check that `lnd` was installed properly run the following command:
 ```
-go install; go test -v -p 1 $(go list ./... | grep -v  '/vendor/')
+make check
 ```
 
 ### Installing btcd
 
-`lnd` currently requires the [roasbeef](https://github.com/roasbeef/btcd) fork
-of `btcd` due to neutrino additions that are not yet available in the master
-branch. To install, run the following commands:
+When using the `btcd` backend, `lnd` currently requires the
+[roasbeef](https://github.com/roasbeef/btcd) fork of `btcd` due to neutrino
+additions that are not yet available in the master branch. To install, run the
+following commands:
 
 Install **btcd**: (must be from roasbeef fork, not from btcsuite)
 ```
-go get -u github.com/Masterminds/glide
-git clone https://github.com/roasbeef/btcd $GOPATH/src/github.com/roasbeef/btcd
-cd $GOPATH/src/github.com/roasbeef/btcd
-glide install
-go install . ./cmd/...
+make btcd 
 ```
 
 ### Starting btcd
@@ -182,7 +180,7 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --b
 
 The configuration for bitcoind and litecoind are nearly identical, the following
 steps can be mirrored with loss of generality to enable a litecoind backend.
-Setup will be described in regards to `bitciond`, but note that `lnd` uses a
+Setup will be described in regards to `bitcoind`, but note that `lnd` uses a
 distinct `litecoin.node=litecoind` argument and analogous subconfigurations
 prefixed by `litecoind`.
 
@@ -212,8 +210,8 @@ testnet=1
 txindex=1
 server=1
 daemon=1
-zmqpubrawblock=tcp://127.0.0.1:18501
-zmqpubrawtx=tcp://127.0.0.1:18501
+zmqpubrawblock=tcp://127.0.0.1:28332
+zmqpubrawtx=tcp://127.0.0.1:28332
 ```
 
 Once all of the above is complete, and you've confirmed `bitcoind` is fully updated with the latest blocks on testnet, run the command below to launch `lnd` with `bitcoind` as your backend (as with `bitcoind`, you can create an `lnd.conf` to save these options, more info on that is described further below):

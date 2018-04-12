@@ -1486,11 +1486,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 					return anns
 				}
 
-				// Otherwise, this is just a regular rejected edge.
+				// Otherwise, this is just a regular rejected
+				// edge.
 				log.Debugf("Router rejected channel "+
 					"edge: %v", err)
 			} else {
-				log.Errorf("Router rejected channel "+
+				log.Tracef("Router rejected channel "+
 					"edge: %v", err)
 			}
 
@@ -1571,7 +1572,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// We'll ignore any channel announcements that target any chain
 		// other than the set of chains we know of.
 		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
-			log.Error("Ignoring ChannelUpdate from "+
+			log.Errorf("Ignoring ChannelUpdate from "+
 				"chain=%v, gossiper on chain=%v", msg.ChainHash,
 				d.cfg.ChainHash)
 			d.rejectMtx.Lock()
